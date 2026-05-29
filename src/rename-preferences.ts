@@ -21,6 +21,11 @@ export interface RenamePreferences {
   fireworksModel: string;
   fireworksEnableReasoning: boolean;
   renamePrompt: string;
+  useCloudModel: boolean;
+}
+
+export function isCloudModelEnabled(preferences: RenamePreferences): boolean {
+  return preferences.useCloudModel !== false;
 }
 
 export interface ProviderValidationResult {
@@ -114,6 +119,10 @@ export function resolveActiveModel(preferences: RenamePreferences): string {
 }
 
 export function validateRenamePreferences(preferences: RenamePreferences): ProviderValidationResult {
+  if (!isCloudModelEnabled(preferences)) {
+    return { valid: true };
+  }
+
   if (getActiveProvider(preferences) === "fireworks") {
     if (!preferences.fireworksApiKey?.trim()) {
       return {

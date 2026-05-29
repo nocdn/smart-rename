@@ -114,8 +114,17 @@
       "type": "textfield",
       "required": false,
       "title": "Rename Prompt",
-      "description": "Instructions sent to the model for each selected file.",
+      "description": "Cloud mode: instructions sent to the model. Offline mode: optional one rule per line (replace:from=>to, /regex/i=>replacement, or pattern=>replacement).",
       "default": "You rename files to clean, human-readable titles. Remove resolution tags, dates, version numbers, download IDs, UUIDs, and random hashes. Remove redundant words like final, copy, and download. Replace dots, underscores, and dashes with spaces. Use Title Case."
+    },
+    {
+      "name": "useCloudModel",
+      "type": "checkbox",
+      "required": false,
+      "title": "Use Cloud Model",
+      "description": "When enabled, rename suggestions use your selected AI provider. When disabled, Smart Rename uses offline parsers and cleanup rules only (no API calls).",
+      "default": true,
+      "label": "Use cloud model"
     }
   ],
   "commands": [
@@ -146,7 +155,9 @@
     "@ai-sdk/openai": "^3.0.67",
     "@raycast/api": "^1.104.19",
     "@raycast/utils": "^1.19.1",
-    "ai": "^6.0.193"
+    "ai": "^6.0.193",
+    "guessit-js": "^3.9.0",
+    "parse-torrent-title": "^3.0.1"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.1.1",

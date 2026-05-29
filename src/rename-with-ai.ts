@@ -1,9 +1,10 @@
 import { streamText } from "ai";
-import { rename, stat } from "fs/promises";
-import { basename, dirname, extname, join } from "path";
+import { basename, extname } from "path";
 
 import { buildRenamePrompt, parseSuggestedBaseName } from "./default-prompt";
 import { createLogger, maskApiKey } from "./logger";
+import { finalizeSuggestedBaseName, renameFilesBatch, reportProgress } from "./rename-batch";
+import { sanitizeBaseName } from "./rename-sanitize";
 import {
   formatRenameAiError,
   getActiveApiKey,
@@ -16,68 +17,13 @@ import {
   resolveOpenAIReasoningEffort,
   type RenamePreferences,
 } from "./rename-preferences";
+import type { RenameProgressHandler, RenameResult } from "./rename-types";
 
 const log = createLogger("rename-ai");
 
 export type { RenamePreferences } from "./rename-preferences";
 
-export type RenameProgressPhase = "sending" | "reasoning" | "renaming";
-
-export interface RenameProgressUpdate {
-  phase: RenameProgressPhase;
-  filePath: string;
-  fileIndex: number;
-  fileCount: number;
-  suggestedName?: string;
-}
-
-export type RenameProgressHandler = (update: RenameProgressUpdate) => void;
-
-export interface RenameResult {
-  path: string;
-  newPath?: string;
-  skipped?: boolean;
-  reason?: string;
-}
-
-function sanitizeBaseName(name: string): string {
-  return name
-    .trim()
-    .replace(/^["'`]+|["'`]+$/g, "")
-    .replace(/[\\/:*?"<>|]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function uniquePath(path: string): Promise<string> {
-  const directory = dirname(path);
-  const extension = extname(path);
-  const baseName = basename(path, extension);
-  let candidate = path;
-  let counter = 2;
-
-  log.debug("Resolving unique target path", { originalPath: path });
-
-  while (true) {
-    try {
-      await stat(candidate);
-      log.debug("Target path already exists; trying next suffix", { candidate, counter });
-      candidate = join(directory, `${baseName} ${counter}${extension}`);
-      counter += 1;
-    } catch {
-      if (candidate !== path) {
-        log.info("Resolved unique target path", { originalPath: path, uniquePath: candidate });
-      }
-      return candidate;
-    }
-  }
-}
-
-function reportProgress(onProgress: RenameProgressHandler | undefined, update: RenameProgressUpdate): void {
-  onProgress?.(update);
-}
-
-async function suggestBaseName(
+async function suggestBaseNameWithAI(
   filePath: string,
   preferences: RenamePreferences,
   onProgress: RenameProgressHandler | undefined,
@@ -92,6 +38,7 @@ async function suggestBaseName(
   const provider = getActiveProvider(preferences);
   const model = resolveActiveModel(preferences);
   const prompt = buildRenamePrompt(preferences.renamePrompt, currentFilename);
+  const reasoningEnabled = isRenameReasoningEnabled(preferences);
 
   log.step("Requesting AI rename suggestion", {
     filePath,
@@ -107,8 +54,6 @@ async function suggestBaseName(
     apiKey: maskApiKey(getActiveApiKey(preferences)),
     responseMode: "plain-text-stream",
   });
-
-  const reasoningEnabled = isRenameReasoningEnabled(preferences);
 
   reportProgress(onProgress, {
     phase: reasoningEnabled ? "sending" : "renaming",
@@ -164,24 +109,7 @@ async function suggestBaseName(
     durationMs: Date.now() - startedAt,
   });
 
-  const sanitized = sanitizeBaseName(rawSuggestedBaseName);
-
-  log.debug("Sanitized AI suggestion", {
-    filePath,
-    sanitizedBaseName: sanitized,
-    currentBaseName,
-  });
-
-  if (!sanitized || sanitized === currentBaseName) {
-    log.info("Skipping file because suggested name is unchanged or empty", {
-      filePath,
-      sanitizedBaseName: sanitized,
-      currentBaseName,
-    });
-    return undefined;
-  }
-
-  return sanitized;
+  return finalizeSuggestedBaseName(sanitizeBaseName(rawSuggestedBaseName), currentBaseName);
 }
 
 export async function renameFilesWithAI(
@@ -189,116 +117,17 @@ export async function renameFilesWithAI(
   preferences: RenamePreferences,
   onProgress?: RenameProgressHandler,
 ): Promise<RenameResult[]> {
-  const startedAt = Date.now();
   const provider = getActiveProvider(preferences);
   const model = resolveActiveModel(preferences);
 
-  log.step("Starting AI rename batch", {
-    fileCount: paths.length,
+  return renameFilesBatch(
     paths,
-    provider,
-    model,
-    apiKey: maskApiKey(getActiveApiKey(preferences)),
-    usingCustomPrompt: Boolean(preferences.renamePrompt.trim()),
-    responseMode: "plain-text-stream",
-  });
-
-  const results: RenameResult[] = [];
-
-  for (const [index, path] of paths.entries()) {
-    const fileStartedAt = Date.now();
-    log.step(`Processing file ${index + 1}/${paths.length}`, { path });
-
-    try {
-      const newBaseName = await suggestBaseName(path, preferences, onProgress, index, paths.length);
-      if (!newBaseName) {
-        const result = { path, skipped: true, reason: "Name already looks good" };
-        results.push(result);
-        log.info("File skipped", { ...result, durationMs: Date.now() - fileStartedAt });
-        continue;
-      }
-
-      const extension = extname(path);
-      const directory = dirname(path);
-      const proposedPath = join(directory, `${newBaseName}${extension}`);
-      const targetPath = await uniquePath(proposedPath);
-
-      reportProgress(onProgress, {
-        phase: "renaming",
-        filePath: path,
-        fileIndex: index,
-        fileCount: paths.length,
-        suggestedName: basename(targetPath),
-      });
-
-      log.info("Renaming file on disk", {
-        from: path,
-        to: targetPath,
-        proposedPath,
-        collisionAvoided: proposedPath !== targetPath,
-      });
-
-      await rename(path, targetPath);
-
-      const result = { path, newPath: targetPath };
-      results.push(result);
-      log.info("File renamed successfully", { ...result, durationMs: Date.now() - fileStartedAt });
-    } catch (error) {
-      const result = {
-        path,
-        skipped: true,
-        reason: formatRenameAiError(error, provider, model),
-      };
-      results.push(result);
-      log.error("File rename failed", {
-        ...result,
-        error,
-        durationMs: Date.now() - fileStartedAt,
-      });
-    }
-  }
-
-  const renamed = results.filter((result) => result.newPath).length;
-  const skipped = results.filter((result) => result.skipped && result.reason === "Name already looks good").length;
-  const failed = results.filter((result) => result.skipped && result.reason !== "Name already looks good").length;
-
-  log.duration("AI rename batch", startedAt, {
-    provider,
-    model,
-    fileCount: paths.length,
-    renamed,
-    skipped,
-    failed,
-    results,
-  });
-
-  return results;
-}
-
-function formatRenameDuration(durationMs: number): string {
-  return `${(durationMs / 1000).toFixed(1)}s`;
-}
-
-export function formatRenamedSuccessToast(
-  results: RenameResult[],
-  durationMs: number,
-): { title: string; message: string } {
-  const renamed = results.filter((result) => result.newPath);
-  const duration = formatRenameDuration(durationMs);
-
-  if (renamed.length === 0) {
-    return { title: "Renamed", message: "" };
-  }
-
-  if (renamed.length === 1) {
-    return {
-      title: "Renamed",
-      message: `${basename(renamed[0].newPath!)} · ${duration}`,
-    };
-  }
-
-  return {
-    title: "Renamed Batch",
-    message: duration,
-  };
+    (filePath, fileIndex, fileCount, progress) =>
+      suggestBaseNameWithAI(filePath, preferences, progress, fileIndex, fileCount),
+    {
+      modeLabel: "AI",
+      onProgress,
+      formatError: (error) => formatRenameAiError(error, provider, model),
+    },
+  );
 }

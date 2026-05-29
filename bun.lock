@@ -10,6 +10,8 @@
         "@raycast/api": "^1.104.19",
         "@raycast/utils": "^1.19.1",
         "ai": "^6.0.193",
+        "guessit-js": "^3.9.0",
+        "parse-torrent-title": "^3.0.1",
       },
       "devDependencies": {
         "@raycast/eslint-config": "^2.1.1",
@@ -304,6 +306,8 @@
 
     "globals": ["globals@16.5.0", "", {}, "sha512-c/c15i26VrJ4IRt5Z89DnIzCGDn9EcebibhAOjw5ibqEHsE1wLUgkPn9RDmNcUKyU87GeaL633nyJ+pplFR2ZQ=="],
 
+    "guessit-js": ["guessit-js@3.9.0", "", { "dependencies": { "rebulk-js": "^3.3.1" } }, "sha512-uy+EX7menbTfAqfA+uRZTIfkSOy0CGxvRUQ/nYMfugzPBrHPqVeSIM/CCOMIH5/dDU++w+hlY9s4D3tVRpuIvg=="],
+
     "has-flag": ["has-flag@4.0.0", "", {}, "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="],
 
     "iconv-lite": ["iconv-lite@0.7.2", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw=="],
@@ -370,6 +374,8 @@
 
     "parent-module": ["parent-module@1.0.1", "", { "dependencies": { "callsites": "^3.0.0" } }, "sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g=="],
 
+    "parse-torrent-title": ["parse-torrent-title@3.0.1", "", {}, "sha512-RxSx53deKlA3oGKvt291//YtKPhVpMay0oug73So1W6074xGAI0XI53l1Lc0Cd7CUtMTUEwpeNUSkdaC0CCtKQ=="],
+
     "path-exists": ["path-exists@4.0.0", "", {}, "sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w=="],
 
     "path-key": ["path-key@3.1.1", "", {}, "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="],
@@ -385,6 +391,8 @@
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
 
     "react": ["react@19.0.0", "", {}, "sha512-V8AVnmPIICiWpGfm6GLzCR/W5FXLchHop40W4nXBmdlEceh16rCN8O8LNWm5bh5XUX91fh7KpA+W0TgMKmgTpQ=="],
+
+    "rebulk-js": ["rebulk-js@3.3.1", "", {}, "sha512-xohP5vyrQoFFCyhNdK7CNtXRf87SkyB/1kfJHOUw8XiSGxFgFRI8QAMt8RGboCQQR+1mnbLJy28oJJrYrXXW+w=="],
 
     "resolve-from": ["resolve-from@4.0.0", "", {}, "sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g=="],
 

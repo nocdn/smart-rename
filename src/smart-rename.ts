@@ -5,13 +5,14 @@ import { beginRun, createLogger, endRun, maskApiKey } from "./logger";
 import { pushRenameBatch } from "./rename-history";
 import {
   formatRenamedSuccessToast,
-  renameFilesWithAI,
+  renameFiles,
   type RenameProgressPhase,
   type RenameProgressUpdate,
-} from "./rename-with-ai";
+} from "./rename-files";
 import {
   getActiveApiKey,
   getActiveProvider,
+  isCloudModelEnabled,
   isFireworksReasoningEnabled,
   isRenameReasoningEnabled,
   resolveActiveModel,
@@ -50,14 +51,21 @@ export default async function main() {
   log.step("Loading extension preferences");
   const preferences = getPreferenceValues<RenamePreferences>();
 
+  const cloudEnabled = isCloudModelEnabled(preferences);
+
   log.info("Preferences loaded", {
-    provider: getActiveProvider(preferences),
-    model: resolveActiveModel(preferences),
+    useCloudModel: cloudEnabled,
+    provider: cloudEnabled ? getActiveProvider(preferences) : "offline",
+    model: cloudEnabled ? resolveActiveModel(preferences) : undefined,
     reasoningEffort:
-      getActiveProvider(preferences) === "openai" ? resolveOpenAIReasoningEffort(preferences) : undefined,
+      cloudEnabled && getActiveProvider(preferences) === "openai"
+        ? resolveOpenAIReasoningEffort(preferences)
+        : undefined,
     reasoningEnabled:
-      getActiveProvider(preferences) === "fireworks" ? isFireworksReasoningEnabled(preferences) : undefined,
-    apiKey: maskApiKey(getActiveApiKey(preferences)),
+      cloudEnabled && getActiveProvider(preferences) === "fireworks"
+        ? isFireworksReasoningEnabled(preferences)
+        : undefined,
+    apiKey: cloudEnabled ? maskApiKey(getActiveApiKey(preferences)) : undefined,
     hasCustomPrompt: Boolean(preferences.renamePrompt?.trim()),
     customPromptLength: preferences.renamePrompt?.trim().length ?? 0,
   });
@@ -76,10 +84,10 @@ export default async function main() {
   }
 
   log.step("Showing progress toast");
-  const reasoningEnabled = isRenameReasoningEnabled(preferences);
+  const reasoningEnabled = cloudEnabled && isRenameReasoningEnabled(preferences);
   const toast = await showToast({
     style: Toast.Style.Animated,
-    title: reasoningEnabled ? "Sending" : "Renaming",
+    title: cloudEnabled ? (reasoningEnabled ? "Sending" : "Renaming") : "Renaming",
   });
 
   try {
@@ -101,7 +109,7 @@ export default async function main() {
     });
 
     const renameStartedAt = Date.now();
-    const results = await renameFilesWithAI(selectedPaths, preferences, (update) => {
+    const results = await renameFiles(selectedPaths, preferences, (update) => {
       applyProgressToast(toast, update);
     });
     const renameDurationMs = Date.now() - renameStartedAt;
