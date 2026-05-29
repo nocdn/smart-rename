@@ -1,31 +1,46 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, Output } from "ai";
+import { streamText } from "ai";
 import { rename, stat } from "fs/promises";
 import { basename, dirname, extname, join } from "path";
-import { z } from "zod";
 
-import { DEFAULT_RENAME_PROMPT } from "./default-prompt";
+import { buildRenamePrompt, parseSuggestedBaseName } from "./default-prompt";
 import { createLogger, maskApiKey } from "./logger";
+import {
+  formatRenameAiError,
+  getActiveApiKey,
+  getActiveProvider,
+  getRenameProviderOptions,
+  getRenameLanguageModel,
+  isFireworksReasoningEnabled,
+  resolveActiveModel,
+  resolveOpenAIReasoningEffort,
+  type RenamePreferences,
+} from "./rename-preferences";
 
 const log = createLogger("rename-ai");
 
-export const DEFAULT_OPENAI_MODEL = "gpt-5.5";
+export type { RenamePreferences } from "./rename-preferences";
 
-export interface RenamePreferences {
-  openaiApiKey: string;
-  openaiModel: string;
-  renamePrompt: string;
+export type RenameProgressPhase = "sending" | "reasoning" | "renaming";
+
+export interface RenameProgressUpdate {
+  phase: RenameProgressPhase;
+  filePath: string;
+  fileIndex: number;
+  fileCount: number;
+  suggestedName?: string;
 }
 
-function resolveModel(preferences: RenamePreferences): string {
-  return preferences.openaiModel?.trim() || DEFAULT_OPENAI_MODEL;
-}
+export type RenameProgressHandler = (update: RenameProgressUpdate) => void;
 
 export interface RenameResult {
   path: string;
   newPath?: string;
   skipped?: boolean;
   reason?: string;
+}
+
+export function formatFileNamedMessage(filename: string): string {
+  return `File named ${filename}`;
 }
 
 function sanitizeBaseName(name: string): string {
@@ -61,44 +76,94 @@ async function uniquePath(path: string): Promise<string> {
   }
 }
 
-async function suggestBaseName(filePath: string, preferences: RenamePreferences): Promise<string | undefined> {
+function reportProgress(onProgress: RenameProgressHandler | undefined, update: RenameProgressUpdate): void {
+  onProgress?.(update);
+}
+
+async function suggestBaseName(
+  filePath: string,
+  preferences: RenamePreferences,
+  onProgress: RenameProgressHandler | undefined,
+  fileIndex: number,
+  fileCount: number,
+): Promise<string | undefined> {
   const startedAt = Date.now();
   const extension = extname(filePath);
   const currentBaseName = basename(filePath, extension);
-  const prompt = preferences.renamePrompt.trim() || DEFAULT_RENAME_PROMPT;
+  const currentFilename = basename(filePath);
   const usingDefaultPrompt = !preferences.renamePrompt.trim();
-  const model = resolveModel(preferences);
+  const provider = getActiveProvider(preferences);
+  const model = resolveActiveModel(preferences);
+  const prompt = buildRenamePrompt(preferences.renamePrompt, currentFilename);
 
   log.step("Requesting AI rename suggestion", {
     filePath,
-    currentFilename: basename(filePath),
+    currentFilename,
     currentBaseName,
     extension,
+    provider,
     model,
+    reasoningEffort: provider === "openai" ? resolveOpenAIReasoningEffort(preferences) : undefined,
+    reasoningEnabled: provider === "fireworks" ? isFireworksReasoningEnabled(preferences) : undefined,
     usingDefaultPrompt,
     promptLength: prompt.length,
-    apiKey: maskApiKey(preferences.openaiApiKey),
+    apiKey: maskApiKey(getActiveApiKey(preferences)),
+    responseMode: "plain-text-stream",
   });
 
-  const openai = createOpenAI({ apiKey: preferences.openaiApiKey.trim() });
-
-  const { output } = await generateText({
-    model: openai(model),
-    output: Output.object({
-      schema: z.object({
-        newBaseName: z.string().describe("The new filename without extension"),
-      }),
-    }),
-    prompt: `${prompt}\n\nCurrent filename: ${basename(filePath)}`,
+  reportProgress(onProgress, {
+    phase: "sending",
+    filePath,
+    fileIndex,
+    fileCount,
   });
+
+  const result = streamText({
+    model: getRenameLanguageModel(preferences),
+    prompt,
+    providerOptions: getRenameProviderOptions(preferences),
+  });
+
+  let streamedText = "";
+
+  for await (const chunk of result.fullStream) {
+    if (chunk.type === "reasoning-start" || chunk.type === "reasoning-delta") {
+      reportProgress(onProgress, {
+        phase: "reasoning",
+        filePath,
+        fileIndex,
+        fileCount,
+      });
+      continue;
+    }
+
+    if (chunk.type === "text-delta") {
+      streamedText += chunk.text;
+      const partialName = sanitizeBaseName(parseSuggestedBaseName(streamedText));
+
+      reportProgress(onProgress, {
+        phase: "renaming",
+        filePath,
+        fileIndex,
+        fileCount,
+        suggestedName: partialName || undefined,
+      });
+    }
+  }
+
+  const text = streamedText || (await result.text);
+  const rawSuggestedBaseName = parseSuggestedBaseName(text);
 
   log.info("Received AI rename suggestion", {
     filePath,
-    rawSuggestedBaseName: output.newBaseName,
+    provider,
+    model,
+    rawResponse: text,
+    rawSuggestedBaseName,
     durationMs: Date.now() - startedAt,
   });
 
-  const sanitized = sanitizeBaseName(output.newBaseName);
+  const sanitized = sanitizeBaseName(rawSuggestedBaseName);
 
   log.debug("Sanitized AI suggestion", {
     filePath,
@@ -118,15 +183,23 @@ async function suggestBaseName(filePath: string, preferences: RenamePreferences)
   return sanitized;
 }
 
-export async function renameFilesWithAI(paths: string[], preferences: RenamePreferences): Promise<RenameResult[]> {
+export async function renameFilesWithAI(
+  paths: string[],
+  preferences: RenamePreferences,
+  onProgress?: RenameProgressHandler,
+): Promise<RenameResult[]> {
   const startedAt = Date.now();
+  const provider = getActiveProvider(preferences);
+  const model = resolveActiveModel(preferences);
 
   log.step("Starting AI rename batch", {
     fileCount: paths.length,
     paths,
-    model: resolveModel(preferences),
-    apiKey: maskApiKey(preferences.openaiApiKey),
+    provider,
+    model,
+    apiKey: maskApiKey(getActiveApiKey(preferences)),
     usingCustomPrompt: Boolean(preferences.renamePrompt.trim()),
+    responseMode: "plain-text-stream",
   });
 
   const results: RenameResult[] = [];
@@ -136,7 +209,7 @@ export async function renameFilesWithAI(paths: string[], preferences: RenamePref
     log.step(`Processing file ${index + 1}/${paths.length}`, { path });
 
     try {
-      const newBaseName = await suggestBaseName(path, preferences);
+      const newBaseName = await suggestBaseName(path, preferences, onProgress, index, paths.length);
       if (!newBaseName) {
         const result = { path, skipped: true, reason: "Name already looks good" };
         results.push(result);
@@ -148,6 +221,14 @@ export async function renameFilesWithAI(paths: string[], preferences: RenamePref
       const directory = dirname(path);
       const proposedPath = join(directory, `${newBaseName}${extension}`);
       const targetPath = await uniquePath(proposedPath);
+
+      reportProgress(onProgress, {
+        phase: "renaming",
+        filePath: path,
+        fileIndex: index,
+        fileCount: paths.length,
+        suggestedName: basename(targetPath),
+      });
 
       log.info("Renaming file on disk", {
         from: path,
@@ -165,7 +246,7 @@ export async function renameFilesWithAI(paths: string[], preferences: RenamePref
       const result = {
         path,
         skipped: true,
-        reason: error instanceof Error ? error.message : String(error),
+        reason: formatRenameAiError(error, provider, model),
       };
       results.push(result);
       log.error("File rename failed", {
@@ -181,6 +262,8 @@ export async function renameFilesWithAI(paths: string[], preferences: RenamePref
   const failed = results.filter((result) => result.skipped && result.reason !== "Name already looks good").length;
 
   log.duration("AI rename batch", startedAt, {
+    provider,
+    model,
     fileCount: paths.length,
     renamed,
     skipped,
@@ -189,4 +272,18 @@ export async function renameFilesWithAI(paths: string[], preferences: RenamePref
   });
 
   return results;
+}
+
+export function formatRenamedSuccessMessage(results: RenameResult[]): string {
+  const renamedPaths = results.filter((result) => result.newPath).map((result) => basename(result.newPath!));
+
+  if (renamedPaths.length === 0) {
+    return "";
+  }
+
+  if (renamedPaths.length === 1) {
+    return formatFileNamedMessage(renamedPaths[0]);
+  }
+
+  return renamedPaths.map((filename) => formatFileNamedMessage(filename)).join("\n");
 }

@@ -3,61 +3,82 @@ import { getPreferenceValues, openExtensionPreferences, showToast, Toast } from 
 import { getFileManagerName, getSelectedFilePaths } from "./get-selected-items";
 import { beginRun, createLogger, endRun, maskApiKey } from "./logger";
 import { pushRenameBatch } from "./rename-history";
-import { DEFAULT_OPENAI_MODEL, renameFilesWithAI } from "./rename-with-ai";
+import {
+  formatFileNamedMessage,
+  formatRenamedSuccessMessage,
+  renameFilesWithAI,
+  type RenameProgressPhase,
+  type RenameProgressUpdate,
+} from "./rename-with-ai";
+import {
+  getActiveApiKey,
+  getActiveProvider,
+  isFireworksReasoningEnabled,
+  resolveActiveModel,
+  resolveOpenAIReasoningEffort,
+  validateRenamePreferences,
+  type RenamePreferences,
+} from "./rename-preferences";
 
 const log = createLogger("smart-rename");
 
-interface Preferences {
-  openaiApiKey: string;
-  openaiModel: string;
-  renamePrompt: string;
-}
+const PROGRESS_TITLES: Record<RenameProgressPhase, string> = {
+  sending: "Sending",
+  reasoning: "Reasoning",
+  renaming: "Renaming",
+};
 
-function summarizeResults(renamed: number, skipped: number, failed: number): string {
-  const parts: string[] = [];
+function applyProgressToast(toast: Toast, update: RenameProgressUpdate): void {
+  toast.style = Toast.Style.Animated;
+  toast.title = PROGRESS_TITLES[update.phase];
 
-  if (renamed > 0) {
-    parts.push(`${renamed} renamed`);
-  }
-  if (skipped > 0) {
-    parts.push(`${skipped} skipped`);
-  }
-  if (failed > 0) {
-    parts.push(`${failed} failed`);
+  if (update.suggestedName) {
+    toast.message = formatFileNamedMessage(update.suggestedName);
+    return;
   }
 
-  return parts.join(", ");
+  if (update.fileCount > 1) {
+    toast.message = `File ${update.fileIndex + 1} of ${update.fileCount}`;
+  } else {
+    toast.message = undefined;
+  }
 }
 
 export default async function main() {
   beginRun("smart-rename");
 
   log.step("Loading extension preferences");
-  const preferences = getPreferenceValues<Preferences>();
+  const preferences = getPreferenceValues<RenamePreferences>();
 
   log.info("Preferences loaded", {
-    apiKey: maskApiKey(preferences.openaiApiKey),
-    model: preferences.openaiModel?.trim() || DEFAULT_OPENAI_MODEL,
+    provider: getActiveProvider(preferences),
+    model: resolveActiveModel(preferences),
+    reasoningEffort:
+      getActiveProvider(preferences) === "openai" ? resolveOpenAIReasoningEffort(preferences) : undefined,
+    reasoningEnabled:
+      getActiveProvider(preferences) === "fireworks" ? isFireworksReasoningEnabled(preferences) : undefined,
+    apiKey: maskApiKey(getActiveApiKey(preferences)),
     hasCustomPrompt: Boolean(preferences.renamePrompt?.trim()),
     customPromptLength: preferences.renamePrompt?.trim().length ?? 0,
   });
 
-  if (!preferences.openaiApiKey?.trim()) {
-    log.warn("Aborting because OpenAI API key is missing");
+  const validation = validateRenamePreferences(preferences);
+  if (!validation.valid) {
+    log.warn("Aborting because provider credentials are missing", validation);
     await showToast({
       style: Toast.Style.Failure,
-      title: "OpenAI API key required",
-      message: "Add your API key in extension preferences",
+      title: validation.errorTitle ?? "Missing API key",
+      message: validation.errorMessage ?? "Add your API key in extension preferences",
     });
     await openExtensionPreferences();
-    endRun("cancelled", { reason: "missing-api-key" });
+    endRun("cancelled", { reason: "missing-api-key", provider: getActiveProvider(preferences) });
     return;
   }
 
-  log.step("Showing renaming toast");
+  log.step("Showing progress toast");
   const toast = await showToast({
     style: Toast.Style.Animated,
-    title: "Renaming",
+    title: "Sending",
   });
 
   try {
@@ -78,7 +99,9 @@ export default async function main() {
       paths: selectedPaths,
     });
 
-    const results = await renameFilesWithAI(selectedPaths, preferences);
+    const results = await renameFilesWithAI(selectedPaths, preferences, (update) => {
+      applyProgressToast(toast, update);
+    });
 
     const renamed = results.filter((result) => result.newPath).length;
     const skipped = results.filter((result) => result.skipped && result.reason === "Name already looks good").length;
@@ -121,20 +144,18 @@ export default async function main() {
 
     await pushRenameBatch(successfulRenames);
 
-    const summary = summarizeResults(renamed, skipped, failed);
     toast.style = Toast.Style.Success;
-    toast.title = renamed === 1 ? "Renamed 1 item" : `Renamed ${renamed} items`;
-    toast.message = summary;
+    toast.title = "Renamed";
+    toast.message = formatRenamedSuccessMessage(results);
 
     log.info("Smart Rename completed successfully", {
       renamed,
       skipped,
       failed,
-      summary,
       successfulRenames,
     });
 
-    endRun("success", { renamed, skipped, failed, summary });
+    endRun("success", { renamed, skipped, failed });
   } catch (error) {
     log.error("Smart Rename failed with unhandled error", error);
     toast.style = Toast.Style.Failure;

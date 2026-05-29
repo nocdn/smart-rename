@@ -15,11 +15,29 @@
   "license": "MIT",
   "preferences": [
     {
+      "name": "provider",
+      "type": "dropdown",
+      "required": true,
+      "title": "Provider",
+      "description": "Choose which AI provider generates rename suggestions.",
+      "default": "openai",
+      "data": [
+        {
+          "title": "OpenAI",
+          "value": "openai"
+        },
+        {
+          "title": "Fireworks AI",
+          "value": "fireworks"
+        }
+      ]
+    },
+    {
       "name": "openaiApiKey",
       "type": "password",
-      "required": true,
+      "required": false,
       "title": "OpenAI API Key",
-      "description": "Your OpenAI API key used to generate rename suggestions.",
+      "description": "Your OpenAI API key. Required when Provider is OpenAI.",
       "placeholder": "sk-..."
     },
     {
@@ -32,12 +50,72 @@
       "placeholder": "gpt-5.5"
     },
     {
+      "name": "openaiReasoningEffort",
+      "type": "dropdown",
+      "required": false,
+      "title": "OpenAI Reasoning Level",
+      "description": "Reasoning effort for OpenAI reasoning models. none and xhigh are only supported on certain models.",
+      "default": "medium",
+      "data": [
+        {
+          "title": "None",
+          "value": "none"
+        },
+        {
+          "title": "Minimal",
+          "value": "minimal"
+        },
+        {
+          "title": "Low",
+          "value": "low"
+        },
+        {
+          "title": "Medium",
+          "value": "medium"
+        },
+        {
+          "title": "High",
+          "value": "high"
+        },
+        {
+          "title": "Extra High",
+          "value": "xhigh"
+        }
+      ]
+    },
+    {
+      "name": "fireworksApiKey",
+      "type": "password",
+      "required": false,
+      "title": "Fireworks API Key",
+      "description": "Your Fireworks AI API key. Required when Provider is Fireworks AI.",
+      "placeholder": "fw_..."
+    },
+    {
+      "name": "fireworksModel",
+      "type": "textfield",
+      "required": false,
+      "title": "Fireworks Model",
+      "description": "The Fireworks model ID used for rename suggestions.",
+      "default": "accounts/fireworks/models/kimi-k2p6",
+      "placeholder": "accounts/fireworks/models/kimi-k2p6"
+    },
+    {
+      "name": "fireworksEnableReasoning",
+      "type": "checkbox",
+      "required": false,
+      "title": "Enable reasoning",
+      "description": "When enabled, Fireworks uses its default reasoning behavior. When disabled, reasoning is turned off explicitly.",
+      "default": true,
+      "label": "Enable reasoning"
+    },
+    {
       "name": "renamePrompt",
       "type": "textfield",
       "required": false,
       "title": "Rename Prompt",
       "description": "Instructions sent to the model for each selected file.",
-      "default": "You rename files to clean, human-readable titles. Remove resolution tags, dates, version numbers, download IDs, UUIDs, and random hashes. Remove redundant words like final, copy, and download. Replace dots, underscores, and dashes with spaces. Use Title Case. Return only the new base filename without extension or path."
+      "default": "You rename files to clean, human-readable titles. Remove resolution tags, dates, version numbers, download IDs, UUIDs, and random hashes. Remove redundant words like final, copy, and download. Replace dots, underscores, and dashes with spaces. Use Title Case."
     }
   ],
   "commands": [
@@ -45,7 +123,7 @@
       "name": "smart-rename",
       "title": "Smart Rename",
       "subtitle": "Selected Files",
-      "description": "Rename selected Finder or File Explorer items using GPT-5.5",
+      "description": "Rename selected Finder or File Explorer items using AI",
       "mode": "no-view"
     },
     {
@@ -64,19 +142,19 @@
     }
   ],
   "dependencies": {
+    "@ai-sdk/fireworks": "^2.0.53",
     "@ai-sdk/openai": "^3.0.67",
     "@raycast/api": "^1.104.19",
-    "@raycast/utils": "^1.17.0",
-    "ai": "^6.0.193",
-    "zod": "^4.4.3"
+    "@raycast/utils": "^1.19.1",
+    "ai": "^6.0.193"
   },
   "devDependencies": {
-    "@raycast/eslint-config": "^2.0.4",
+    "@raycast/eslint-config": "^2.1.1",
     "@types/node": "22.19.17",
     "@types/react": "19.0.10",
-    "eslint": "^9.22.0",
-    "prettier": "^3.5.3",
-    "typescript": "^5.8.2"
+    "eslint": "^9.39.4",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
   },
   "scripts": {
     "build": "ray build",
