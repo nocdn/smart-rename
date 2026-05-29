@@ -4,8 +4,7 @@ import { getFileManagerName, getSelectedFilePaths } from "./get-selected-items";
 import { beginRun, createLogger, endRun, maskApiKey } from "./logger";
 import { pushRenameBatch } from "./rename-history";
 import {
-  formatFileNamedMessage,
-  formatRenamedSuccessMessage,
+  formatRenamedSuccessToast,
   renameFilesWithAI,
   type RenameProgressPhase,
   type RenameProgressUpdate,
@@ -14,6 +13,7 @@ import {
   getActiveApiKey,
   getActiveProvider,
   isFireworksReasoningEnabled,
+  isRenameReasoningEnabled,
   resolveActiveModel,
   resolveOpenAIReasoningEffort,
   validateRenamePreferences,
@@ -33,7 +33,7 @@ function applyProgressToast(toast: Toast, update: RenameProgressUpdate): void {
   toast.title = PROGRESS_TITLES[update.phase];
 
   if (update.suggestedName) {
-    toast.message = formatFileNamedMessage(update.suggestedName);
+    toast.message = update.suggestedName;
     return;
   }
 
@@ -76,9 +76,10 @@ export default async function main() {
   }
 
   log.step("Showing progress toast");
+  const reasoningEnabled = isRenameReasoningEnabled(preferences);
   const toast = await showToast({
     style: Toast.Style.Animated,
-    title: "Sending",
+    title: reasoningEnabled ? "Sending" : "Renaming",
   });
 
   try {
@@ -99,9 +100,11 @@ export default async function main() {
       paths: selectedPaths,
     });
 
+    const renameStartedAt = Date.now();
     const results = await renameFilesWithAI(selectedPaths, preferences, (update) => {
       applyProgressToast(toast, update);
     });
+    const renameDurationMs = Date.now() - renameStartedAt;
 
     const renamed = results.filter((result) => result.newPath).length;
     const skipped = results.filter((result) => result.skipped && result.reason === "Name already looks good").length;
@@ -144,14 +147,16 @@ export default async function main() {
 
     await pushRenameBatch(successfulRenames);
 
+    const successToast = formatRenamedSuccessToast(results, renameDurationMs);
     toast.style = Toast.Style.Success;
-    toast.title = "Renamed";
-    toast.message = formatRenamedSuccessMessage(results);
+    toast.title = successToast.title;
+    toast.message = successToast.message;
 
     log.info("Smart Rename completed successfully", {
       renamed,
       skipped,
       failed,
+      durationMs: renameDurationMs,
       successfulRenames,
     });
 

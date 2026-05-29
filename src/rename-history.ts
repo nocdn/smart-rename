@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { LocalStorage } from "@raycast/api";
 
 import { createLogger } from "./logger";
@@ -123,7 +125,7 @@ export async function recordRenameBatch(renames: RenameEntry[]): Promise<void> {
 
   const store = await readStore();
   const batch = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     createdAt: Date.now(),
     renames,
   };

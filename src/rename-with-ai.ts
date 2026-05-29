@@ -11,6 +11,7 @@ import {
   getRenameProviderOptions,
   getRenameLanguageModel,
   isFireworksReasoningEnabled,
+  isRenameReasoningEnabled,
   resolveActiveModel,
   resolveOpenAIReasoningEffort,
   type RenamePreferences,
@@ -37,10 +38,6 @@ export interface RenameResult {
   newPath?: string;
   skipped?: boolean;
   reason?: string;
-}
-
-export function formatFileNamedMessage(filename: string): string {
-  return `File named ${filename}`;
 }
 
 function sanitizeBaseName(name: string): string {
@@ -111,8 +108,10 @@ async function suggestBaseName(
     responseMode: "plain-text-stream",
   });
 
+  const reasoningEnabled = isRenameReasoningEnabled(preferences);
+
   reportProgress(onProgress, {
-    phase: "sending",
+    phase: reasoningEnabled ? "sending" : "renaming",
     filePath,
     fileIndex,
     fileCount,
@@ -128,12 +127,14 @@ async function suggestBaseName(
 
   for await (const chunk of result.fullStream) {
     if (chunk.type === "reasoning-start" || chunk.type === "reasoning-delta") {
-      reportProgress(onProgress, {
-        phase: "reasoning",
-        filePath,
-        fileIndex,
-        fileCount,
-      });
+      if (reasoningEnabled) {
+        reportProgress(onProgress, {
+          phase: "reasoning",
+          filePath,
+          fileIndex,
+          fileCount,
+        });
+      }
       continue;
     }
 
@@ -274,16 +275,30 @@ export async function renameFilesWithAI(
   return results;
 }
 
-export function formatRenamedSuccessMessage(results: RenameResult[]): string {
-  const renamedPaths = results.filter((result) => result.newPath).map((result) => basename(result.newPath!));
+function formatRenameDuration(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
 
-  if (renamedPaths.length === 0) {
-    return "";
+export function formatRenamedSuccessToast(
+  results: RenameResult[],
+  durationMs: number,
+): { title: string; message: string } {
+  const renamed = results.filter((result) => result.newPath);
+  const duration = formatRenameDuration(durationMs);
+
+  if (renamed.length === 0) {
+    return { title: "Renamed", message: "" };
   }
 
-  if (renamedPaths.length === 1) {
-    return formatFileNamedMessage(renamedPaths[0]);
+  if (renamed.length === 1) {
+    return {
+      title: "Renamed",
+      message: `${basename(renamed[0].newPath!)} · ${duration}`,
+    };
   }
 
-  return renamedPaths.map((filename) => formatFileNamedMessage(filename)).join("\n");
+  return {
+    title: "Renamed Batch",
+    message: duration,
+  };
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { environment } from "@raycast/api";
 
 const LOG_PREFIX = "[Smart Rename]";
@@ -83,7 +85,7 @@ function write(level: LogLevel, scope: string, message: string, data?: unknown):
 
 export function beginRun(command: string): string {
   currentRun = {
-    id: crypto.randomUUID().slice(0, 8),
+    id: randomUUID().slice(0, 8),
     command,
     startedAt: Date.now(),
   };

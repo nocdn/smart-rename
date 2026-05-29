@@ -65,6 +65,14 @@ export function isFireworksReasoningEnabled(preferences: RenamePreferences): boo
   return preferences.fireworksEnableReasoning !== false;
 }
 
+export function isRenameReasoningEnabled(preferences: RenamePreferences): boolean {
+  if (getActiveProvider(preferences) === "fireworks") {
+    return isFireworksReasoningEnabled(preferences);
+  }
+
+  return resolveOpenAIReasoningEffort(preferences) !== "none";
+}
+
 export function getFireworksProviderOptions(
   preferences: RenamePreferences,
 ): { fireworks: FireworksLanguageModelOptions } | undefined {
