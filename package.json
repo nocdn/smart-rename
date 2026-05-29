@@ -2,11 +2,12 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "smart-rename",
   "title": "Smart Rename",
-  "description": "Extension which takes a selected item from Finder, and intelligently renames it to a nicer file.",
+  "description": "Extension which takes selected items from Finder or File Explorer and intelligently renames them to nicer filenames.",
   "icon": "extension-icon.png",
   "author": "nocdn",
   "platforms": [
-    "macOS"
+    "macOS",
+    "Windows"
   ],
   "categories": [
     "Productivity"
@@ -18,8 +19,17 @@
       "type": "password",
       "required": true,
       "title": "OpenAI API Key",
-      "description": "Your OpenAI API key used to call GPT-5.5.",
+      "description": "Your OpenAI API key used to generate rename suggestions.",
       "placeholder": "sk-..."
+    },
+    {
+      "name": "openaiModel",
+      "type": "textfield",
+      "required": false,
+      "title": "OpenAI Model",
+      "description": "The OpenAI model ID used for rename suggestions.",
+      "default": "gpt-5.5",
+      "placeholder": "gpt-5.5"
     },
     {
       "name": "renamePrompt",
@@ -34,8 +44,8 @@
     {
       "name": "smart-rename",
       "title": "Smart Rename",
-      "subtitle": "Selected Finder Items",
-      "description": "Rename selected Finder items using GPT-5.5",
+      "subtitle": "Selected Files",
+      "description": "Rename selected Finder or File Explorer items using GPT-5.5",
       "mode": "no-view"
     },
     {
